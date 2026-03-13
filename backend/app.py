@@ -51,6 +51,11 @@ def detect_people_in_image(image_path):
     if image is None:
         return None, "Failed to read image"
     
+    # Save original image to visualize frame extraction stage
+    original_filename = f"original_{int(time.time())}.jpg"
+    original_path = os.path.join(RESULTS_FOLDER, original_filename)
+    cv2.imwrite(original_path, image)
+
     # Run YOLO inference
     results = model(image)
     
@@ -86,7 +91,8 @@ def detect_people_in_image(image_path):
         'count': person_count,
         'crowd_level': classify_crowd_density(person_count),
         'processing_time': round(processing_time, 3),
-        'result_image': result_filename
+        'result_image': result_filename,
+        'original_image': original_filename
     }, None
 
 def detect_people_in_video(video_path):
@@ -137,6 +143,13 @@ def detect_people_in_video(video_path):
     max_count = 0
     total_count = 0
     frame_count = 0
+
+    # To visualize pipeline stages for the frontend (multiple samples)
+    raw_sample_frames = []
+    detection_sample_frames = []
+    sample_counts = []
+    sample_frame_times = []
+    sample_frame_numbers = []
     
     try:
         while True:
@@ -145,6 +158,13 @@ def detect_people_in_video(video_path):
                 break
             
             frame_start = time.time()
+
+            sample_every_n_frames = max(1, int(cap.get(cv2.CAP_PROP_FPS)) or 1)
+            is_sample = len(raw_sample_frames) < 6 and (frame_count % sample_every_n_frames == 0)
+
+            # Keep copies of some raw frames for the frame extraction stage
+            if is_sample:
+                raw_sample_frames.append(frame.copy())
             
             # Run YOLO inference on frame
             results = model(frame)
@@ -165,7 +185,11 @@ def detect_people_in_video(video_path):
                         cv2.putText(frame, label, (int(x1), int(y1) - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
-            # Add count overlay
+            # Capture some frames after detection boxes are drawn
+            if is_sample:
+                detection_sample_frames.append(frame.copy())
+
+            # Add count overlay for final video output
             cv2.putText(frame, f"Count: {person_count}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.putText(frame, f"Level: {classify_crowd_density(person_count)}", (10, 60),
@@ -175,11 +199,34 @@ def detect_people_in_video(video_path):
             
             max_count = max(max_count, person_count)
             total_count += person_count
+            frame_elapsed = time.time() - frame_start
+            if is_sample:
+                sample_counts.append(person_count)
+                sample_frame_times.append(frame_elapsed)
+                sample_frame_numbers.append(frame_count)
             frame_count += 1
-            frame_times.append(time.time() - frame_start)
+            frame_times.append(frame_elapsed)
     finally:
         cap.release()
         out.release()
+
+    # Save sample frames for visualization if available
+    raw_sample_filenames = []
+    detection_sample_filenames = []
+
+    timestamp = int(time.time())
+
+    for idx, frame in enumerate(raw_sample_frames):
+        filename = f"sample_raw_{timestamp}_{idx}.jpg"
+        path = os.path.join(RESULTS_FOLDER, filename)
+        cv2.imwrite(path, frame)
+        raw_sample_filenames.append(filename)
+
+    for idx, frame in enumerate(detection_sample_frames):
+        filename = f"sample_detection_{timestamp}_{idx}.jpg"
+        path = os.path.join(RESULTS_FOLDER, filename)
+        cv2.imwrite(path, frame)
+        detection_sample_filenames.append(filename)
     
     # Verify video was created
     if not os.path.exists(result_path) or os.path.getsize(result_path) == 0:
@@ -195,7 +242,12 @@ def detect_people_in_video(video_path):
         'total_processing_time': round(total_processing_time, 3),
         'avg_frame_time': round(avg_frame_time, 3),
         'total_frames': frame_count,
-        'result_video': result_filename
+        'result_video': result_filename,
+        'raw_sample_frames': raw_sample_filenames,
+        'detection_sample_frames': detection_sample_filenames,
+        'sample_counts': sample_counts,
+        'sample_frame_times': [round(x, 4) for x in sample_frame_times],
+        'sample_frame_numbers': sample_frame_numbers
     }, None
 
 @app.route('/api/health', methods=['GET'])

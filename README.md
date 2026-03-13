@@ -1,4 +1,4 @@
-# Bus Crowd Estimation System
+# Bus Crowd Classification System
 
 A web application for estimating bus crowd density using YOLO object detection.
 
