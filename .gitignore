@@ -29,3 +29,6 @@ frontend/build/
 .DS_Store
 Thumbs.db
 
+
+# Media
+*.mp4
